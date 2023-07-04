@@ -1,14 +1,15 @@
 # Ultralytics YOLO 🚀, GPL-3.0 license
 
+import re
 import hydra
 import torch
-
+import csv
 from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 import easyocr
-
+from difflib import SequenceMatcher
 import cv2
 reader = easyocr.Reader(['en'], gpu=True)
 def ocr_image(img,coordinates):
@@ -65,23 +66,24 @@ class DetectionPredictor(BasePredictor):
             frame = self.dataset.count
         else:
             frame = getattr(self.dataset, 'frame', 0)
-
         self.data_path = p
-        # save_path = str(self.save_dir / p.name)  # im.jpg
         self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if self.dataset.mode == 'image' else f'_{frame}')
         log_string += '%gx%g ' % im.shape[2:]  # print string
         self.annotator = self.get_annotator(im0)
-
         det = preds[idx]
         self.all_outputs.append(det)
         if len(det) == 0:
             return log_string
+
+        car_ids = {}
+
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
+            
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
-        # write
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
+            
             if self.args.save_txt:  # Write to file
                 xywh = (ops.xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                 line = (cls, *xywh, conf) if self.args.save_conf else (cls, *xywh)  # label format
@@ -92,17 +94,77 @@ class DetectionPredictor(BasePredictor):
                 c = int(cls)  # integer class
                 label = None if self.args.hide_labels else (
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
-                text_ocr = ocr_image(im0,xyxy)
-                label = text_ocr              
+                text_ocr = ocr_image(im0, xyxy)
+                label = text_ocr
+                # Add this line to print the label content
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
+
+                # Print number_plate and number_plate_precision
+                number_plate_before = label.upper()
+                number_plate=format_plate(number_plate_before)
+                number_plate_precision = conf
+                print(f"Number Plate: {number_plate}")
+                print(f"Number Plate Precision: {number_plate_precision}")
+                if number_plate_precision > 0.92 and number_plate != "" and len(number_plate) == 6:
+                    save_to_csv( number_plate, number_plate_precision)
+
             if self.args.save_crop:
                 imc = im0.copy()
                 save_one_box(xyxy,
-                             imc,
-                             file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
-                             BGR=True)
+                            imc,
+                            file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
+                            BGR=True)
 
         return log_string
+def get_similarity(str1, str2):
+    return SequenceMatcher(None, str1, str2).ratio()
+def format_plate(number_plate):
+    # Remove unwanted characters
+    number_plate = number_plate.replace(" ", "").replace(":", "").replace("-", "")
+
+    # Validate the format
+    pattern = r"^[A-Z][A-Z0-9][A-Z]\d{3}$"
+    if re.match(pattern, number_plate):
+        return number_plate
+    else:
+        return ""
+    
+    
+def save_to_csv(number_plate, number_plate_precision):
+    csv_file = 'high_precision_results.csv'
+
+    # Check if the CSV file exists or create a new one
+    try:
+        with open(csv_file, 'x', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Car ID', 'Number Plate', 'Number Plate Precision'])
+    except FileExistsError:
+        pass
+
+    # Load existing entries from CSV
+    existing_entries = {}
+    with open(csv_file, 'r') as f:
+        reader = csv.reader(f)
+        next(reader)  # Skip header row
+        for row in reader:
+            existing_entries[int(row[0])] = row[1]
+
+    # Find the next available car ID
+    car_id = max(existing_entries.keys()) + 1 if existing_entries else 1
+
+    # Check if the entry already exists
+    if number_plate in existing_entries.values():
+        return
+
+    # Append the data to the CSV file
+    with open(csv_file, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([car_id, number_plate, number_plate_precision])
+
+    # Add the new entry to the existing entries dictionary
+    existing_entries[car_id] = number_plate
+
+
 
 
 @hydra.main(version_base=None, config_path=str(DEFAULT_CONFIG.parent), config_name=DEFAULT_CONFIG.name)
