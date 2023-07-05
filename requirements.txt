@@ -1,6 +1,9 @@
 # Ultralytics requirements
 # Usage: pip install -r requirements.txt
-
+ultralytics==8.0.0
+pycocotools==2.0.6
+opencv-python==4.7.0.72
+webdriver-manager
 # Base ----------------------------------------
 hydra-core>=1.2.0
 matplotlib>=3.2.2
