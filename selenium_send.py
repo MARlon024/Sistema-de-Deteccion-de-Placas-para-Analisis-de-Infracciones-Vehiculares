@@ -12,7 +12,7 @@ import time
 from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import NoSuchElementException
 import os
-from graficas import *
+#from graficas import *
 
 
 def csv_find():
@@ -187,7 +187,7 @@ for placa_number in number_plates:
             csv_save_info(extracted_data)
             print(f"Data saved for license plate: {placa_number}")
             print("\n--------------------------\n\n")
-            reporte_visual()
+            # reporte_visual()
 
         time.sleep(1)  # Wait for the page to reset
 
